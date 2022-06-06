@@ -115,19 +115,49 @@
 
         <section>
           <section>How can a JWT be used to secure an API?</section>
-          <section>Flow diagram of the process</section>
-          <section>Refresh token</section>
+          <section>
+            <h2>Flow diagram of the process</h2>
+            <img class="fragment fade-up" data-src="./media/auth-flow.webp" />
+          </section>
         </section>
 
         <section>
-          <section data-markdown>
-            <textarea data-template>
-				## Define the endpoints / routes for the web API
-				  
-				Controllers are the gateways into the web api for client
-				applications via http requests.				  
-			  </textarea
-            >
+          <section>
+            <h2>Register process</h2>            
+          </section>
+		  <section>
+			  <h2>End point in controller for registration</h2>
+			  <pre><code data-trim data-noescape data-line-numbers="1-3|5-9|10-13">
+[HttpPost]
+[Route("register")]
+public async Task<IActionResult> Register(RegisterRequest userForRegister)
+{
+	try
+	{
+		await _userService.Register(userForRegister, Role.User);
+		return Ok(new { message = "Registration successful" });
+	}
+	catch (System.Exception ex)
+	{
+		return Conflict(ex.Message);
+	}
+}
+			  </code></pre>
+		  </section>
+		  <section>
+			  <h2>Registering a user request</h2>
+			  <img data-src="./media/register/register-swagger.png" />
+		  </section>
+		  <section>
+			  <h2>Registering a user response</h2>
+			  <img data-src="./media/register/register-response.png" />
+		  </section>
+        </section>
+
+        <section>
+          <section>
+			  <h2>Authorised routes</h2>
+			  <p>Authorised routes require an authenticated user in order to be accessed.</p>
           </section>
           <section data-markdown>
             <textarea data-template>
@@ -158,15 +188,185 @@
 			  </textarea
             >
           </section>
+		  <section>
+			  <h2>The unprotected route in action</h2>
+			  <img data-src="./media/end-points/getallusers.png" />
+		  </section>
+		  <section>
+			  <h2>The protected route</h2>
+			<pre><code data-noescape data-trim data-line-numbers="1-4">
+[HttpGet]
+[Authorize]
+[Route("{id}", Name = "GetUserById")]
+public async Task<IActionResult> GetUserById(int id)
+{
+	var user = await _userService.GetByIdAsync(id);
 
-          <section>
-            <h2>User entity</h2>
-          </section>
+	if (user == null)
+	{
+		return NotFound();
+	}
 
-          <section>
-            <h2>Services</h2>
-          </section>
+	return Ok(user);
+}
+			</code></pre>
+		  </section>
+		  <section>
+			  <h2>The protected route in action</h2>
+			  <img data-src="./media/end-points/get-user-request.png" />
+			  <img data-src="./media/end-points/get-user-response.png" />
+		  </section>
+		  <section>
+			  <h2>Time to login</h2>
+			  <p>Logging in will generate a JWT and allow us to provide it with requests.</p>
+			  <p>The API will verify the JWT and then provide access to the resources.</p>
+		  </section>
         </section>
+
+		<section>
+			<section>
+				<h2>The login process</h2>
+				<p>Using the authenticate endpoint, we provide email and password as the AuthenticateRequest.</p>
+				<img data-src="./media/login-request.png" />	
+			</section>
+			<section>
+				<pre>
+					<code data-noescape data-trim data-line-numbers="1-3|8-10">
+[AllowAnonymous]
+[HttpPost("authenticate")]
+public async Task<IActionResult> Authenticate(AuthenticateRequest model)
+{
+
+	try
+	{
+		var authResponse = await _userService.Authenticate(model, ipAddress());
+		setTokenCookie(authResponse.RefreshToken);
+		return Ok(authResponse);
+
+	}
+	catch (AppException ex)
+	{
+		return Unauthorized(ex);
+	}
+}
+					</code>
+				</pre>				
+			</section>
+			<section>
+				<h2>Check the auth details in the User Service</h2>
+				<p>Try and find the user by email, then check the password matches that in the database</p>
+				<pre>
+					<code data-noescape data-trim data-line-numbers="1-2|4-7">
+var user = await _context.Users
+	.SingleOrDefaultAsync(x => x.Email == model.Email);
+
+// validate
+if (user == null 
+	|| !BCrypt.Net.BCrypt.Verify(model.Password, user.PasswordHash))
+	throw new AppException("Username or password is incorrect");
+					</code>
+				</pre>
+			</section>
+			<section>
+				<h2>If the user exists and password is correct, it's time to create the JWT!</h2>
+			</section>
+			<section>
+				<h2>Generate the JWT like so</h2>
+				<pre>
+					<code data-noescape data-trim data-line-numbers="4-5|9-12|13|14|16-17">
+public string GenerateJwtToken(User user)
+{
+	// generate token that is valid for 15 minutes
+	var tokenHandler = new JwtSecurityTokenHandler();
+	var key = Encoding.ASCII.GetBytes(_appSettings.Secret);
+
+	var tokenDescriptor = new SecurityTokenDescriptor
+	{
+		Subject = new ClaimsIdentity(new[] { 
+			new Claim("id", user.Id.ToString()), 
+			new Claim("firstName", user.FirstName) 
+		}),
+		Expires = DateTime.UtcNow.AddMinutes(1),
+		SigningCredentials = new SigningCredentials(new SymmetricSecurityKey(key), SecurityAlgorithms.HmacSha256Signature)
+	};
+	var token = tokenHandler.CreateToken(tokenDescriptor);
+	return tokenHandler.WriteToken(token);
+}
+					</code>
+				</pre>
+			</section>
+			<section>
+				<h2>The JWT is then returned</h2>
+				<p>The return looks like the below</p>
+				<img data-src="./media/login-response.png" />
+			</section>
+			<section>
+				<h2>We can now see what's in it!</h2>
+				<img data-src="./media/decoded-jwt.png" />
+			</section>
+		</section>
+
+		<section>
+			<section>
+				<h2>Now we can provide the JWT with our requests to the API</h2>
+				<p>The JWT is attached to requests via the Authorization header.</p>				
+			</section>
+			<section>
+				<h2>The 'protected' route without the JWT</h2>
+				<img data-src="./media/end-points/get-user-response.png" />				
+			</section>
+			<section>
+				<h2>The 'protected' route with the JWT</h2>
+				<img data-src="./media/protected-route-with-token.png" />				
+			</section>
+			<section>
+				<h2>How does the API 'intercept' requests to the Authorised routes</h2>
+				<pre>
+					<code data-noescape data-trim data-line-numbers="3-4|5-11">
+public async Task Invoke(HttpContext context, IUserService userService, IJwtUtils jwtUtils)
+{
+	var token = context.Request.Headers["Authorization"]
+		.FirstOrDefault()?.Split(" ").Last();
+	var userId = jwtUtils.ValidateJwtToken(token);
+	if (userId != null)
+	{
+		// attach user to context on successful jwt validation
+		context.Items["User"] = await userService
+			.GetByIdAsync(userId.Value);
+	}
+
+	await _next(context);
+}
+					</code>
+				</pre>
+				<aside class="notes">
+					<p>Custom middleware gets the Request. Takes the JWT from the Authorization header and then is able to extract the user id.</p>
+					<p>The user id is then used to find a user and then attach it to the Http Context</p>
+				</aside>
+			</section>
+			<section>
+				<h2>The Authorize attribute</h2>
+				<pre> 
+					<code data-noescape data-trim data-line-numbers="3-6|8-11">
+public void OnAuthorization(AuthorizationFilterContext context)
+{
+	// skip authorization if action is decorated with [AllowAnonymous] attribute
+	var allowAnonymous = context.ActionDescriptor.EndpointMetadata.OfType<AllowAnonymousAttribute>().Any();
+	if (allowAnonymous)
+		return;
+
+	// authorization. This is set via the custom middleware.
+	var user = (User)context.HttpContext.Items["User"];
+	if (user == null)
+		context.Result = new JsonResult(new { message = "Unauthorized" }) { StatusCode = StatusCodes.Status401Unauthorized };
+}
+					</code>
+				</pre>
+			</section>
+			<section>
+
+			</section>
+		</section>
       </div>
     </div>
 
