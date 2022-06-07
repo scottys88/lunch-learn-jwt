@@ -364,8 +364,23 @@ public void OnAuthorization(AuthorizationFilterContext context)
 				</pre>
 			</section>
 			<section>
+				<h2>Final piece of setup</h2>
+				<p>We need to tell the .net core API to use Authentication.</p>
+				<p>We need to ensure the custom middleware to intercept is being used</p>
+				<pre>
+					<code data-noescape data-trim>
+// Program.cs						
+// custom jwt auth middleware
+app.UseMiddleware<JwtMiddleware>();
 
+app.UseAuthorization();
+					</code>
+				</pre>
 			</section>
+		</section>
+
+		<section>
+			<h2>That's it, thanks for watching!</h2>			
 		</section>
       </div>
     </div>
